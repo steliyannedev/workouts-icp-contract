@@ -1,0 +1,9 @@
+service: () -> {
+    createUser: (text) -> (record {id:principal; sessionIds:vec principal; name:text; createdAt:nat64});
+    deleteUser: (principal) -> (variant {Ok:record {id:principal; sessionIds:vec principal; name:text; createdAt:nat64}; Err:variant {MuscleGroupDoesNotExist:text; WorkoutDoesNotExist:principal; UserDoesNotExist:principal}});
+    endWorkout: (principal, nat64) -> (variant {Ok:record {id:principal; startedAt:nat64; userId:principal; calories:nat64; muscleGroup:text; finishedAt:nat64}; Err:variant {MuscleGroupDoesNotExist:text; WorkoutDoesNotExist:principal; UserDoesNotExist:principal}});
+    getAllUsers: () -> (vec record {id:principal; sessionIds:vec principal; name:text; createdAt:nat64}) query;
+    getUserById: (principal) -> (variant {Ok:record {id:principal; sessionIds:vec principal; name:text; createdAt:nat64}; Err:variant {MuscleGroupDoesNotExist:text; WorkoutDoesNotExist:principal; UserDoesNotExist:principal}}) query;
+    listWorkouts: () -> (vec record {id:principal; startedAt:nat64; userId:principal; calories:nat64; muscleGroup:text; finishedAt:nat64}) query;
+    startWorkout: (text) -> (variant {Ok:record {id:principal; startedAt:nat64; userId:principal; calories:nat64; muscleGroup:text; finishedAt:nat64}; Err:variant {MuscleGroupDoesNotExist:text; WorkoutDoesNotExist:principal; UserDoesNotExist:principal}});
+}
