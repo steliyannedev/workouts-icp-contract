@@ -15,17 +15,19 @@ import {
     Vec
 } from 'azle';
 
+import { v4 as uuidv4 } from 'uuid'
+
 const POSSIBLE_GROUPS = ["shouders", "back", "chest", "legs", "cardio"];
 
 const User = Record({
     id: Principal,
     createdAt: nat64,
-    sessionIds: Vec(Principal),
+    sessionIds: Vec(text),
     name: text
 });
 
 const WorkoutSession = Record({
-    id: Principal,
+    id: text,
     userId: Principal,
     startedAt: nat64,
     finishedAt: nat64,
@@ -34,13 +36,18 @@ const WorkoutSession = Record({
 });
 
 const Errors = Variant({
-    WorkoutDoesNotExist: Principal,
+    WorkoutDoesNotExist: text,
     UserDoesNotExist: Principal,
-    MuscleGroupDoesNotExist: text
+    UserDoesExist: Principal,
+    MuscleGroupDoesNotExist: text,
+    AuthenticationFail: Principal,
+    InvalidPayload: text
 });
 
 let users = StableBTreeMap(Principal, User, 0);
-let workouts = StableBTreeMap(Principal, WorkoutSession, 1);
+let workouts = StableBTreeMap(text, WorkoutSession, 1);
+
+const isInvalidString = (str : text) => str.trim().length == 0
 
 export default Canister({
     /**
@@ -48,8 +55,14 @@ export default Canister({
      * @param name - Name for the user.
      * @returns the newly created user instance.
     */
-    createUser: update([text], User, (name) => {
+    createUser: update([text], Result(User, Errors), (name) => {
         const id = ic.caller();
+        if (users.containsKey(id)){
+            return Err({UserDoesExist: id})
+        }
+        if (isInvalidString(name)){
+            return Err({InvalidPayload: name})
+        }
         const user: typeof User = {
             id,
             createdAt: ic.time(),
@@ -58,7 +71,7 @@ export default Canister({
         }
         users.insert(user.id, user)
 
-        return user
+        return Ok(user)
     }),
     /**
      * Fetch user by id.
@@ -85,7 +98,8 @@ export default Canister({
      * @param id - ID of the user.
      * @returns the deleted instance of the user or an error msg if user id doesn't exists.
     */
-    deleteUser: update([Principal], Result(User, Errors), (id) => {
+    deleteUser: update([], Result(User, Errors), () => {
+        const id = ic.caller();
         if (!users.containsKey(id)) {
             return Err({UserDoesNotExist: id})
         }
@@ -103,10 +117,17 @@ export default Canister({
      * @returns an instance of a workout.
     */
     startWorkout: update([text], Result(WorkoutSession, Errors), (group) => {
+
+        if (!users.containsKey(ic.caller())) {
+            return Err({UserDoesNotExist: ic.caller()})
+        }
+        if (isInvalidString(group)){
+            return Err({InvalidPayload: group})
+        }
         if (!POSSIBLE_GROUPS.includes(group.toLowerCase())) {
             return Err({MuscleGroupDoesNotExist: `'${group}' is not a viable group, please select one of: ${POSSIBLE_GROUPS}`})
         }
-        const id = generateId();
+        const id = uuidv4();
         const workout: typeof WorkoutSession = {
             id,
             userId: ic.caller(),
@@ -131,11 +152,19 @@ export default Canister({
      * @param calories - an nat64 number.
      * @returns an instance of a workout or an error msg if workout doesn't exists.
     */
-    endWorkout: update([Principal, nat64], Result(WorkoutSession, Errors), (id, calories) => {
+    endWorkout: update([text, nat64], Result(WorkoutSession, Errors), (id, calories) => {
+        const caller = ic.caller();
+        if (!users.containsKey(caller)) {
+            return Err({UserDoesNotExist: caller})
+        }
         if (!workouts.containsKey(id)) {
             return Err({WorkoutDoesNotExist: id})
         }
-        const workout = workouts.get(id).Some;
+        const workout : typeof WorkoutSession = workouts.get(id).Some;
+
+        if (workout.userId.toString() != caller.toString()){
+            return Err({AuthenticationFail: caller})
+        }
         const updatedWorkout: typeof WorkoutSession = {
             ...workout,
             finishedAt: ic.time(),
@@ -155,14 +184,17 @@ export default Canister({
 
 });
 
-/**
- * Generate an ID of a type Principal.
- * @returns a Principal ID.
-*/
-function generateId(): Principal {
-    const randomBytes = new Array(29)
-        .fill(0)
-        .map((_) => Math.floor(Math.random() * 256));
+// a workaround to make uuid package work with Azle
+globalThis.crypto = {
+    // @ts-ignore
+    getRandomValues: () => {
+        let array = new Uint8Array(32);
 
-    return Principal.fromUint8Array(Uint8Array.from(randomBytes));
-}
+        for (let i = 0; i < array.length; i++) {
+            array[i] = Math.floor(Math.random() * 256);
+        }
+
+        return array;
+    }
+};
+
