@@ -1,168 +1,218 @@
 import {
-    Canister,
     ic,
-    Err,
     nat64,
-    Ok,
-    Principal,
-    query,
+    $query,
     Record,
     Result,
     StableBTreeMap,
-    text,
-    update,
+    $update,
     Variant,
-    Vec
+    Vec,
+    match
 } from 'azle';
+import { v4 as uuidv4 } from "uuid";
 
-const POSSIBLE_GROUPS = ["shouders", "back", "chest", "legs", "cardio"];
+// Define possible errors
+type Errors = Variant<{
+    WorkoutDoesNotExist: string,
+    UserDoesNotExist: string,
+    MuscleGroupDoesNotExist: string
+}>;
 
-const User = Record({
-    id: Principal,
+// Define types for User and WorkoutSession
+type User = Record<{
+    id: string,
     createdAt: nat64,
-    sessionIds: Vec(Principal),
-    name: text
-});
+    sessionIds: Vec<string>,
+    name: string
+}>;
 
-const WorkoutSession = Record({
-    id: Principal,
-    userId: Principal,
+type WorkoutSession = Record<{
+    id: string,
+    userId: string,
     startedAt: nat64,
     finishedAt: nat64,
     calories: nat64,
-    muscleGroup: text
-});
+    muscleGroup: string
+}>;
 
-const Errors = Variant({
-    WorkoutDoesNotExist: Principal,
-    UserDoesNotExist: Principal,
-    MuscleGroupDoesNotExist: text
-});
+// List of possible muscle groups
+const POSSIBLE_GROUPS: Vec<string> = ["shoulders", "back", "chest", "legs", "cardio"];
 
-let users = StableBTreeMap(Principal, User, 0);
-let workouts = StableBTreeMap(Principal, WorkoutSession, 1);
+// Map to store users and workouts
+const users = new StableBTreeMap<string, User>(0, 44, 1024);
+const workouts = new StableBTreeMap<string, WorkoutSession>(1, 44, 1024);
 
-export default Canister({
-    /**
-     * Creates a new user.
-     * @param name - Name for the user.
-     * @returns the newly created user instance.
-    */
-    createUser: update([text], User, (name) => {
-        const id = ic.caller();
-        const user: typeof User = {
+// Create a new user
+$update
+export function createUser(name: string): Result<User, string> {
+    try {
+        const id = uuidv4();
+        const user: User = {
             id,
             createdAt: ic.time(),
             sessionIds: [],
-            name
-        }
-        users.insert(user.id, user)
-
-        return user
-    }),
-    /**
-     * Fetch user by id.
-     * @param id - ID of the user.
-     * @returns a user instance if exists or an error if user doesn't exists.
-    */
-    getUserById: query([Principal], Result(User, Errors), (id) => {
-        if (!users.containsKey(id)) {
-            return Err({UserDoesNotExist: id})
-        }
-        const user = users.get(id).Some;
-
-        return Ok(user);
-    }),
-    /**
-     * Fetch all users.
-     * @returns a list of all users.
-    */
-    getAllUsers: query([], Vec(User), () => {
-        return users.values();
-    }),
-    /**
-     * Delete a user by id.
-     * @param id - ID of the user.
-     * @returns the deleted instance of the user or an error msg if user id doesn't exists.
-    */
-    deleteUser: update([Principal], Result(User, Errors), (id) => {
-        if (!users.containsKey(id)) {
-            return Err({UserDoesNotExist: id})
-        }
-        const user = users.get(id).Some;
-        user.sessionIds.forEach((sessionId: Principal) => {
-            workouts.remove(sessionId)
-        });
-        users.remove(user.id);
-
-        return Ok(user);
-    }),
-    /**
-     * Create a workout and start it.
-     * @param group - a string representation of a muscle group, available options - ["shouders", "back", "chest", "legs", "cardio"].
-     * @returns an instance of a workout.
-    */
-    startWorkout: update([text], Result(WorkoutSession, Errors), (group) => {
-        if (!POSSIBLE_GROUPS.includes(group.toLowerCase())) {
-            return Err({MuscleGroupDoesNotExist: `'${group}' is not a viable group, please select one of: ${POSSIBLE_GROUPS}`})
-        }
-        const id = generateId();
-        const workout: typeof WorkoutSession = {
-            id,
-            userId: ic.caller(),
-            startedAt: ic.time(),
-            finishedAt: 0n,
-            calories: 0n,
-            muscleGroup: group
+            name,
         };
-        workouts.insert(workout.id, workout)
-        const user = users.get(ic.caller()).Some
-        const updatedUser: typeof User = {
-            ...user,
-            sessionIds: [...user.sessionIds, workout.id]
-        };
-        users.insert(updatedUser.id, updatedUser);
-
-        return Ok(workout)
-    }),
-    /**
-     * Create a workout and start it.
-     * @param id - ID of a workout.
-     * @param calories - an nat64 number.
-     * @returns an instance of a workout or an error msg if workout doesn't exists.
-    */
-    endWorkout: update([Principal, nat64], Result(WorkoutSession, Errors), (id, calories) => {
-        if (!workouts.containsKey(id)) {
-            return Err({WorkoutDoesNotExist: id})
-        }
-        const workout = workouts.get(id).Some;
-        const updatedWorkout: typeof WorkoutSession = {
-            ...workout,
-            finishedAt: ic.time(),
-            calories
-        }
-        workouts.insert(workout.id, updatedWorkout);
-
-        return Ok(updatedWorkout);
-    }),
-    /**
-     * Fetch all workouts.
-     * @returns a list of all workouts.
-    */
-    listWorkouts: query([], Vec(WorkoutSession), () => {
-        return workouts.values();
-    })
-
-});
-
-/**
- * Generate an ID of a type Principal.
- * @returns a Principal ID.
-*/
-function generateId(): Principal {
-    const randomBytes = new Array(29)
-        .fill(0)
-        .map((_) => Math.floor(Math.random() * 256));
-
-    return Principal.fromUint8Array(Uint8Array.from(randomBytes));
+        users.insert(user.id, user);
+        return Result.Ok<User, string>(user);
+    } catch (error: any) {
+        return Result.Err<User, string>(`Error creating user: ${error}`);
+    }
 }
+
+// Get user by ID
+$query
+export function getUserById(id: string): Result<User, string> {
+    try {
+        if (!id || typeof id !== "string") {
+            throw new Error("Invalid user ID");
+        }
+
+        return match(users.get(id), {
+            Some: (user) => Result.Ok<User, string>(user),
+            None: () => Result.Err<User, string>("User does not exist"),
+        });
+    } catch (error: any) {
+        return Result.Err<User, string>(`Error getting user: ${error}`);
+    }
+}
+
+// Get all users
+$query
+export function getAllUsers(): Result<Vec<User>, string> {
+    try {
+        return Result.Ok<Vec<User>, string>(users.values());
+    } catch (error: any) {
+        return Result.Err<Vec<User>, string>(`Error getting all users: ${error}`);
+    }
+}
+
+// Delete a user
+$update
+export function deleteUser(id: string): Result<User, string> {
+    try {
+        if (!id || typeof id !== "string") {
+            throw new Error("Invalid user ID");
+        }
+
+        const userOpt = users.get(id);
+
+        return match(userOpt, {
+            Some: (user) => {
+                user.sessionIds.forEach((sessionId: string) => {
+                    workouts.remove(sessionId);
+                });
+                users.remove(user.id);
+                return Result.Ok<User, string>(user);
+            },
+            None: () => Result.Err<User, string>("User does not exist"),
+        });
+    } catch (error: any) {
+        return Result.Err<User, string>(`Error deleting user: ${error}`);
+    }
+}
+
+// Start a workout
+$update
+export function startWorkout(group: string, userId: string): Result<WorkoutSession, Errors> {
+    try {
+        // Validate ids 
+
+        if (!userId || typeof userId !== "string") {
+            throw new Error("Invalid user ID");
+        }
+
+        if (!group || typeof group !== "string") {
+            throw new Error("Invalid group");
+        }
+
+
+        if (!POSSIBLE_GROUPS.includes(group.toLowerCase())) {
+            return Result.Err<WorkoutSession, Errors>({ MuscleGroupDoesNotExist: `'${group}' is not a viable group, please select one of: ${POSSIBLE_GROUPS}` });
+        } else {
+            const id = uuidv4();
+            const workout: WorkoutSession = {
+                id,
+                userId: userId, // Use the provided userId instead of id
+                startedAt: ic.time(),
+                finishedAt: 0n,
+                calories: 0n,
+                muscleGroup: group
+            };
+            workouts.insert(workout.id, workout);
+
+            const userOpt = users.get(userId); // Use userId here
+
+            return match(userOpt, {
+                Some: (user) => {
+                    const updatedUser: User = {
+                        ...user,
+                        sessionIds: [...user.sessionIds, workout.id]
+                    };
+                    users.insert(updatedUser.id, updatedUser);
+                    return Result.Ok<WorkoutSession, Errors>(workout);
+                },
+                None: () => Result.Err<WorkoutSession, Errors>({ UserDoesNotExist: "invalid user ID" }),
+            });
+        }
+    } catch (error: any) {
+        return Result.Err<WorkoutSession, Errors>({ UserDoesNotExist: "invalid user ID" })
+    }
+}
+
+// End a workout
+$update
+export function endWorkout(id: string, calories: nat64): Result<WorkoutSession, string> {
+    try {
+        // Validate ids 
+        
+        if (!id || typeof id !== "string") {
+            throw new Error("Invalid user ID");
+        }
+
+        if (calories <= 0) {
+            throw new Error("Invalid calories");
+        }
+
+        return match(workouts.get(id), {
+            Some: (workout) => {
+                const updatedWorkout: WorkoutSession = {
+                    ...workout,
+                    finishedAt: ic.time(),
+                    calories
+                };
+
+                workouts.insert(workout.id, updatedWorkout);
+                return Result.Ok<WorkoutSession, string>(updatedWorkout);
+            },
+            None: () => Result.Err<WorkoutSession, string>("User does not exist"),
+        });
+    } catch (error: any) {
+        return Result.Err<WorkoutSession, string>(`Error ending workout: ${error}`);
+    }
+}
+
+// List all workouts
+$query
+export function listWorkouts(): Result<Vec<WorkoutSession>, string> {
+    try {
+        return Result.Ok<Vec<WorkoutSession>, string>(workouts.values());
+    } catch (error: any) {
+        return Result.Err<Vec<WorkoutSession>, string>(`Error listing workouts: ${error}`);
+    }
+}
+
+// Crypto workaround
+globalThis.crypto = {
+    //@ts-ignore
+    getRandomValues: () => {
+        let array = new Uint8Array(32);
+
+        for (let i = 0; i < array.length; i++) {
+            array[i] = Math.floor(Math.random() * 256);
+        }
+
+        return array;
+    },
+};
