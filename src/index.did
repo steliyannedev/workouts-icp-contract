@@ -1,9 +1,33 @@
-service: () -> {
-    createUser: (text) -> (record {id:principal; sessionIds:vec principal; name:text; createdAt:nat64});
-    deleteUser: (principal) -> (variant {Ok:record {id:principal; sessionIds:vec principal; name:text; createdAt:nat64}; Err:variant {MuscleGroupDoesNotExist:text; WorkoutDoesNotExist:principal; UserDoesNotExist:principal}});
-    endWorkout: (principal, nat64) -> (variant {Ok:record {id:principal; startedAt:nat64; userId:principal; calories:nat64; muscleGroup:text; finishedAt:nat64}; Err:variant {MuscleGroupDoesNotExist:text; WorkoutDoesNotExist:principal; UserDoesNotExist:principal}});
-    getAllUsers: () -> (vec record {id:principal; sessionIds:vec principal; name:text; createdAt:nat64}) query;
-    getUserById: (principal) -> (variant {Ok:record {id:principal; sessionIds:vec principal; name:text; createdAt:nat64}; Err:variant {MuscleGroupDoesNotExist:text; WorkoutDoesNotExist:principal; UserDoesNotExist:principal}}) query;
-    listWorkouts: () -> (vec record {id:principal; startedAt:nat64; userId:principal; calories:nat64; muscleGroup:text; finishedAt:nat64}) query;
-    startWorkout: (text) -> (variant {Ok:record {id:principal; startedAt:nat64; userId:principal; calories:nat64; muscleGroup:text; finishedAt:nat64}; Err:variant {MuscleGroupDoesNotExist:text; WorkoutDoesNotExist:principal; UserDoesNotExist:principal}});
+type Errors = variant {
+  MuscleGroupDoesNotExist : text;
+  WorkoutDoesNotExist : text;
+  UserDoesNotExist : text;
+};
+type User = record {
+  id : text;
+  sessionIds : vec text;
+  name : text;
+  createdAt : nat64;
+};
+type WorkoutSession = record {
+  id : text;
+  startedAt : nat64;
+  userId : text;
+  calories : nat64;
+  muscleGroup : text;
+  finishedAt : nat64;
+};
+type _AzleResult = variant { Ok : User; Err : text };
+type _AzleResult_1 = variant { Ok : User; Err : Errors };
+type _AzleResult_2 = variant { Ok : WorkoutSession; Err : Errors };
+type _AzleResult_3 = variant { Ok : vec User; Err : text };
+type _AzleResult_4 = variant { Ok : vec WorkoutSession; Err : Errors };
+service : () -> {
+  createUser : (text) -> (_AzleResult);
+  deleteUser : (text) -> (_AzleResult_1);
+  endWorkout : (text, nat64) -> (_AzleResult_2);
+  getAllUsers : () -> (_AzleResult_3) query;
+  getUserById : (text) -> (_AzleResult_1) query;
+  listWorkouts : () -> (_AzleResult_4) query;
+  startWorkout : (text, text) -> (_AzleResult_2);
 }
